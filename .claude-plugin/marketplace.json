@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "qsp-skills",
+  "version": "1.0.0",
+  "description": "Skills and plugins by QSP GmbH",
+  "owner": {
+    "name": "Bernhard Pollerspöck",
+    "url": "https://github.com/BernhardPollerspoeck"
+  },
+  "plugins": [
+    {
+      "name": "sproutdb",
+      "version": "1.0.0",
+      "description": "SproutDB query language and C# integration reference. Ensures correct syntax (NOT SQL).",
+      "source": "./plugins/sproutdb",
+      "category": "development"
+    }
+  ]
+}

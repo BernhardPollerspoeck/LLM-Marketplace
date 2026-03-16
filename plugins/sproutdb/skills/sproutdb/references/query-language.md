@@ -23,12 +23,31 @@ get users ## inline comment ## where active = true
 
 ---
 
+## CREATE DATABASE
+
+```
+create database
+create database with chunk_size N
+```
+
+Examples:
+```
+create database
+create database with chunk_size 500
+```
+
+- `chunk_size` controls slot pre-allocation (100–1,000,000)
+
+---
+
 ## CREATE TABLE
 
 ```
 create table NAME
 create table NAME (col1 type [size] [strict] [default val], ...)
 create table NAME (...) ttl DURATION
+create table NAME (...) ttl DURATION with chunk_size N
+create table NAME (...) with chunk_size N
 ```
 
 Examples:
@@ -41,6 +60,8 @@ create table products (name string 200, price double default 0)
 - No parentheses around type size: `string 320` NOT `string(320)`
 - `default VALUE` makes column non-nullable
 - `strict` prevents type widening on the column
+- `chunk_size` controls slot pre-allocation (100–1,000,000)
+- Order: Columns → TTL → `with chunk_size`
 
 ---
 
@@ -140,6 +161,25 @@ delete sessions where created < '2024-01-01 00:00:00.0000'
 describe            ## List all tables
 describe TABLE      ## Show table schema
 ```
+
+Response includes `chunk_size` and `effective_chunk_size` properties.
+
+---
+
+## SHRINK
+
+```
+shrink table TABLE
+shrink table TABLE chunk_size N
+shrink database
+shrink database chunk_size N
+```
+
+- `shrink table`: Compacts index + column files, closes gaps from deleted rows
+- `shrink table chunk_size N`: Additionally sets a new chunk_size for the table
+- `shrink database`: Sets DB-level chunk_size, shrinks all tables WITHOUT their own chunk_size
+- Tables with their own chunk_size are **skipped** by `shrink database`
+- Target slots: `max(chunk_size, ceil(rows / chunk_size) * chunk_size)`
 
 ---
 
@@ -327,6 +367,18 @@ get users
 
 Follow expands rows: 1 user with 3 orders → 3 result rows.
 Follow columns are prefixed with alias: `orders._id`, `orders.total`.
+
+---
+
+## Type Widening
+
+Type widening works via `add column table.col newtype`. Allowed widenings:
+
+- `ubyte` → `ushort` → `uint` → `ulong`
+- `sbyte` → `sshort` → `sint` → `slong`
+- `float` → `double`
+
+Data is preserved, NULL values remain NULL.
 
 ---
 

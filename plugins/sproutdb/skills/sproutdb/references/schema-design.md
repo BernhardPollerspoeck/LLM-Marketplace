@@ -138,8 +138,10 @@ create table tickets (status string 20, priority string 10)
 
 ### Numeric Types — Size Generously
 
-Type widening (e.g. `ubyte` → `ushort`) is currently **broken** (file rebuild not implemented).
-Choose the right type from the start. String size can be changed via `alter column`.
+Type widening works via `add column table.col newtype`.
+Allowed: `ubyte`→`ushort`→`uint`→`ulong`, `sbyte`→`sshort`→`sint`→`slong`, `float`→`double`.
+Data is preserved, NULL values remain NULL. Recommendation: choose numeric types generously (rebuild has cost).
+String size can be changed via `alter column`.
 
 ### Index Strategy
 
@@ -147,3 +149,17 @@ Choose the right type from the start. String size can be changed via `alter colu
 - Index foreign key columns used in follow
 - Unique index for natural keys (email, slug, etc.)
 - Blob columns CANNOT be indexed
+
+---
+
+## ChunkSize Cascade
+
+Every table pre-allocates slots in chunks. The effective chunk_size is resolved via cascade: Table > Database > Engine-Global (default: 10,000).
+
+| Ebene | Wie setzen |
+|-------|-----------|
+| Engine-Global | `SproutEngineSettings.ChunkSize` (Default: 10,000) |
+| Pro Database | `create database with chunk_size N` |
+| Pro Tabelle | `create table ... with chunk_size N` |
+| Nachträglich DB | `shrink database chunk_size N` |
+| Nachträglich Tabelle | `shrink table ... chunk_size N` |

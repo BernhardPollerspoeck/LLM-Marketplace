@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "qsp-skills",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Skills and plugins by QSP GmbH",
   "owner": {
     "name": "Bernhard Pollerspöck",
@@ -13,6 +13,13 @@
       "version": "1.1.0",
       "description": "SproutDB query language and C# integration reference. Ensures correct syntax (NOT SQL).",
       "source": "./plugins/sproutdb",
+      "category": "development"
+    },
+    {
+      "name": "catena",
+      "version": "1.0.0",
+      "description": "Catena patch-based version control reference. Ensures correct `catena` CLI usage and the right mental model (NOT Git).",
+      "source": "./plugins/catena",
       "category": "development"
     }
   ]

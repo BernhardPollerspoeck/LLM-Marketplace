@@ -1,0 +1,9 @@
+{
+  "name": "catena",
+  "version": "1.0.0",
+  "description": "Catena patch-based version control reference for AI coding agents. Catena is NOT Git — it is an online-first, patch-based VCS with a maturity lifecycle, operated only through the `catena` CLI. This skill ensures correct CLI usage and the right mental model.",
+  "author": {
+    "name": "Bernhard Pollerspöck",
+    "url": "https://github.com/BernhardPollerspoeck"
+  }
+}

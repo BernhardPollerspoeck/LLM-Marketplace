@@ -37,7 +37,8 @@
 | Type | Size | Notes |
 |------|------|-------|
 | `bool` | 1B | `true` / `false` |
-| `blob` | 8B counter | Binary, stored as files on disk, Base64 in/out |
+| `blob` | 8B counter | Binary, stored as separate files on disk, Base64 in/out, NOT searchable |
+| `array` | 8B counter | Typed array, separate files on disk. Syntax: `array string 30`. Prefer junction tables for relationships |
 
 ---
 

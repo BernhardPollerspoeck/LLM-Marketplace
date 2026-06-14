@@ -23,6 +23,38 @@ get users ## inline comment ## where active = true
 
 ---
 
+## Multi-Query & Transactions
+
+Multiple queries are separated by **semicolons**. Each query produces its own response,
+returned positionally (`Query()` returns `List<SproutResponse>`).
+
+```
+## Batch: 3 queries -> 3 responses
+get users; get orders; describe users
+```
+
+### Transactions (`atomic` ... `commit`)
+
+Wrap mutations in `atomic; ... ; commit` for all-or-nothing execution with real
+rollback (MMF-level). On any error inside the block, all changes are reverted.
+
+```
+atomic;
+upsert accounts {_id: 1, balance: 50};
+upsert accounts {_id: 2, balance: 150};
+commit
+```
+
+Rules:
+- `atomic` and `commit` each stand alone in their own segment (own semicolon).
+- `get` / `describe` are allowed inside a transaction and see uncommitted writes
+  (read-your-own-writes).
+- The result list ends with a **transaction marker** response
+  (`Operation = transaction`, `Affected` = total rows changed).
+- Nested `atomic` blocks are not allowed.
+
+---
+
 ## CREATE DATABASE
 
 ```
@@ -389,13 +421,21 @@ Data is preserved, NULL values remain NULL.
 | `SYNTAX_ERROR` | Query parse failure |
 | `UNKNOWN_TABLE` | Table doesn't exist |
 | `UNKNOWN_COLUMN` | Column doesn't exist |
+| `UNKNOWN_DATABASE` | Database doesn't exist |
 | `TABLE_EXISTS` | Table already exists |
+| `DATABASE_EXISTS` | Database already exists |
+| `INDEX_EXISTS` | Index already exists |
+| `INDEX_NOT_FOUND` | Index doesn't exist |
 | `TYPE_MISMATCH` | Value doesn't match column type |
 | `NOT_NULLABLE` | NULL for non-nullable column |
+| `TYPE_NARROWING` | Type narrowing not allowed |
 | `STRICT_VIOLATION` | Type widening on strict column |
 | `BULK_LIMIT` | Too many records in bulk upsert |
 | `WHERE_REQUIRED` | DELETE needs WHERE |
 | `UNIQUE_VIOLATION` | Unique index violated |
 | `PROTECTED_NAME` | Name with `_` prefix (system-reserved) |
 | `AUTH_REQUIRED` | No API key provided |
+| `AUTH_INVALID` | API key invalid |
 | `PERMISSION_DENIED` | Insufficient permissions |
+| `KEY_EXISTS` | API key name already exists |
+| `KEY_NOT_FOUND` | API key not found |

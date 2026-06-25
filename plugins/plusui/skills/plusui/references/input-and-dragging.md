@@ -71,11 +71,23 @@ public partial class Slider : UiElement, IDraggableControl, IFocusable, IKeyboar
 
 ## Custom drag control: a resize handle (splitter)
 
-A thin vertical handle the user drags to resize a neighbour. It's a raw `UiElement`
-(so `partial` + `[GenerateShadowMethods]`, per the custom-control rules in
-[architecture.md](architecture.md)), implements `IDraggableControl` for the drag stream and
-`IHoverableControl` for cursor-style feedback, and reports each horizontal delta through a
-callback.
+A thin vertical handle the user drags to resize a neighbour. It implements `IDraggableControl`
+for the drag stream and `IHoverableControl` for hover feedback, and reports each horizontal
+delta through a callback.
+
+> **Authoring custom controls OUTSIDE `PlusUi.core` (the common case).** Several base members
+> are `protected internal` / `internal`, so they are **not** reachable from your own assembly —
+> code that compiles inside the PlusUi repo will fail in a consumer project:
+> - `IsFocusable` must be overridden as **`protected override`**, not `protected internal override`
+>   (`internal` doesn't cross assembly boundaries).
+> - **`VisualOffset` and the `HorizontalAlignment`/`VerticalAlignment` *property setters* are
+>   not accessible.** Use the public fluent setters (`SetVerticalAlignment(...)`) instead of
+>   assigning the property, and use the **public** `Position` / `ElementSize` (not `VisualOffset`)
+>   when rendering.
+>
+> The cleanest fix is to **inherit a concrete control** (e.g. `Solid`) instead of raw `UiElement`:
+> you inherit its rendering, `IsFocusable`, and `AccessibilityRole`, and never touch an internal
+> member. That's the approach below.
 
 ```csharp
 using PlusUi.core;
@@ -83,45 +95,41 @@ using PlusUi.core.Attributes;
 using SkiaSharp;
 
 [GenerateShadowMethods]
-public partial class ResizeHandle : UiElement, IDraggableControl, IHoverableControl
+public partial class ResizeHandle : Solid, IDraggableControl, IHoverableControl
 {
-    protected internal override bool IsFocusable => false;
-    public override AccessibilityRole AccessibilityRole => AccessibilityRole.None;
-
-    // Framework-driven state — just storage we read while rendering.
+    // Framework-driven state — we only read these while rendering.
     public bool IsDragging { get; set; }
     public bool IsHovered { get; set; }
 
-    private float _width = 6f;
     private Action<float>? _onResize;
-    private SKColor _baseColor = new(60, 60, 60);
-    private SKColor _activeColor = new(90, 120, 200);
+    private readonly SKColor _activeColor = new(90, 120, 200);
 
-    public ResizeHandle SetHandleWidth(float w) { _width = w; InvalidateMeasure(); return this; }
+    // Solid ctor: (width, height, color). Fixed 6px width; null height = stretch to fill.
+    public ResizeHandle() : base(6f, null, new Color(45, 45, 45)) { }
+
     public ResizeHandle SetOnResize(Action<float> onResize) { _onResize = onResize; return this; }
-
-    // Fixed thickness, stretch to fill the parent's height.
-    public ResizeHandle() => VerticalAlignment = VerticalAlignment.Stretch;
-
-    public override Size MeasureInternal(Size availableSize, bool dontStretch = false)
-        => new(_width, dontStretch ? 0 : availableSize.Height);
 
     public void HandleDrag(float deltaX, float deltaY) => _onResize?.Invoke(deltaX);
 
     public override void Render(SKCanvas canvas)
     {
-        base.Render(canvas);
-        using var paint = new SKPaint
+        base.Render(canvas); // Solid draws the base strip
+
+        if (IsDragging || IsHovered)   // accent grip line when active
         {
-            Color = (IsDragging || IsHovered) ? _activeColor : _baseColor,
-            IsAntialias = true,
-        };
-        var x = Position.X + VisualOffset.X;
-        var y = Position.Y + VisualOffset.Y;
-        canvas.DrawRect(x, y, ElementSize.Width, ElementSize.Height, paint);
+            using var grip = new SKPaint { Color = _activeColor, IsAntialias = true };
+            // Use public Position/ElementSize — VisualOffset is internal to PlusUi.core.
+            canvas.DrawRect(Position.X + ElementSize.Width / 2f - 1f, Position.Y,
+                            2f, ElementSize.Height, grip);
+        }
     }
 }
 ```
+
+> A raw `UiElement` subclass also works **inside `PlusUi.core`** (that's how `Slider`/`Separator`
+> are written, with `protected internal override bool IsFocusable`, `MeasureInternal`, and
+> `Position + VisualOffset` in `Render`). Use that form only for controls living in the framework
+> assembly itself.
 
 The page/VM owns the actual width and clamps it; the handle only reports deltas:
 

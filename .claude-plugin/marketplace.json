@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "qsp-skills",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Skills and plugins by QSP GmbH",
   "owner": {
     "name": "Bernhard Pollerspöck",
@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "plusui",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "description": "PlusUi cross-platform .NET UI framework reference. Code-first fluent C# UI (NOT XAML/MAUI/WPF) — ensures correct controls, layouts, Set*/Bind* binding, theming, navigation, and continuous pointer/drag-to-resize.",
       "source": "./plugins/plusui",
       "category": "development"

@@ -31,6 +31,7 @@ inherit from `UiElement` / `UiTextElement` / `UiLayoutElement`. Colors are `SKCo
 | Display controls: ActivityIndicator, ProgressBar, Image, Solid, LineGraph | [references/display.md](references/display.md) |
 | Menus & overlays: Menu, ContextMenu, Toolbar, Tooltip, Popups (UiPopupElement) | [references/menus-overlays.md](references/menus-overlays.md) |
 | Gesture detectors: Tap, DoubleTap, LongPress, Swipe, Pinch | [references/gestures.md](references/gestures.md) |
+| Continuous pointer input: drag-to-resize, splitters, custom drag/hover controls, bound grid tracks | [references/input-and-dragging.md](references/input-and-dragging.md) |
 | Building reusable custom controls via composition | [references/usercontrol.md](references/usercontrol.md) |
 
 ## Critical rules / differences

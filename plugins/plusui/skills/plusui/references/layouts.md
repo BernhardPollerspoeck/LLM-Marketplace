@@ -154,6 +154,19 @@ Arranges children in explicit rows/columns with absolute, auto (content-sized), 
 
 Row/column sizing modes: `Row.Absolute`/`Column.Absolute` (fixed px), `Row.Auto`/`Column.Auto` (content-sized), `Row.Star`/`Column.Star` (weight). Star is a **weight, not a percentage**: `Column.Star, 2` gets twice the space of `Column.Star, 1`.
 
+**Runtime-sized tracks (`AddBoundColumn`/`AddBoundRow`).** For a track whose size changes at runtime (e.g. a drag-resizable sidebar), bind it. These take a `nameof` property name **+ a `Func<float>` getter** — not an `Expression` like other `Bind*` methods — and re-measure when that property raises `PropertyChanged`:
+
+```csharp
+new Grid()
+    .AddBoundColumn(nameof(vm.SidebarWidth), Column.Absolute, () => vm.SidebarWidth)
+    .AddColumn(Column.Star, 1)
+    .AddRow(Row.Star, 1)
+    .AddChild(BuildSidebar(), row: 0, column: 0)
+    .AddChild(BuildContent(), row: 0, column: 1);
+```
+
+For the drag-to-resize handle that updates `SidebarWidth`, see [input-and-dragging.md](input-and-dragging.md).
+
 ```csharp
 // Header row (fixed) + auto row, two proportional columns
 new Grid()

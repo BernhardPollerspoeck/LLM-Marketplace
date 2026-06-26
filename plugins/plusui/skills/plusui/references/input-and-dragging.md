@@ -24,7 +24,9 @@ The framework's `InputService` translates raw mouse events into method calls on 
    trailing click is **suppressed** (a drag does not also fire a click).
 
 Hover is tracked continuously: the element under the pointer gets `IsHovered = true` (and the
-previously hovered one `false`) if it implements `IHoverableControl`.
+previously hovered one `false`) if it implements `IHoverableControl`. Independently, **any**
+element can fire hover enter/leave `ICommand`s and set a mouse cursor — see
+[Hover commands & cursor](#hover-commands--cursor--on-any-element) below.
 
 `HitTest` defaults (on `UiElement`) to "return `this` if the point is inside my bounds", so a
 custom control is hittable across its whole area automatically. Override `HitTest` only for
@@ -49,6 +51,71 @@ then drives it. `IDraggableControl` / `IScrollableControl` derive from the marke
   **inverted** `lastPosition - location`. Don't copy the sign convention from one to the other.
 - `IsDragging` / `IsScrolling` / `IsHovered` are **set by the framework** — you expose them as
   plain `{ get; set; }` and read them (e.g. for hover/drag visuals); you don't raise them yourself.
+
+## Hover commands & cursor — on ANY element
+
+These two live on the `UiElement` base, so **every** control supports them through the fluent
+API — no interface to implement, no custom control needed.
+
+### Hover enter/leave commands
+
+One-shot `ICommand`s fired when the pointer **enters** or **leaves** the element — the command
+counterpart to the live `IHoverableControl.IsHovered` flag. Use these for side-effects (show a
+detail panel, start an animation); use `IsHovered` for continuous visuals you read in `Render`.
+
+```csharp
+new Label().SetText("Hover me")
+    .SetOnHoverEnterCommand(vm.ShowDetailsCommand)
+    .BindOnHoverExitCommand(() => vm.HideDetailsCommand);
+```
+
+- `SetOnHoverEnterCommand(ICommand?)` / `BindOnHoverEnterCommand(...)`
+- `SetOnHoverExitCommand(ICommand?)` / `BindOnHoverExitCommand(...)`
+- Fired by `InputService` on the hover transition (same point as `IsHovered`/tooltips).
+- Prefer `Bind*` from the VM (the command is owned by the VM) over an inline closure.
+- **Not** fired on touch-only platforms (no pointer). The exit command is **not** fired on
+  page-navigation teardown — a page change releases hover state without invoking it.
+
+### Mouse cursor
+
+The cursor shape an element shows while hovered. Driven by the same hover hit-test; when the
+pointer leaves the element (or the page changes) the cursor resets to `Default`.
+
+```csharp
+new Button().SetText("Open").SetCursor(CursorType.Hand);
+new ResizeHandle().SetCursor(CursorType.ResizeHorizontal);   // e.g. on a splitter
+new Button().SetText("Brand").SetCursor(CursorType.PlusUi);  // self-drawn PlusUi logo cursor
+```
+
+- `SetCursor(CursorType)` / `BindCursor(...)` on any element.
+- **All `CursorType` values** (every one renders on desktop — see resolution below):
+
+  | Value | Shape |
+  |---|---|
+  | `Default` / `Arrow` | OS arrow |
+  | `PlusUi` | the PlusUi brand mark (chevron+plus), hotspot at the chevron tip |
+  | `Hand` | pointing hand (clickable) |
+  | `Text` | I-beam (editable text) |
+  | `Crosshair` | crosshair |
+  | `Wait` | busy clock/spinner |
+  | `Progress` | arrow + small busy badge (working in background) |
+  | `NotAllowed` | circle with a slash |
+  | `ResizeHorizontal` / `ResizeVertical` | ↔ / ↕ |
+  | `ResizeAll` | 4-way move |
+  | `ResizeNwse` / `ResizeNesw` | ↘↖ / ↙↗ diagonal resize |
+
+- Backed by `IPlatformCursorService` — implemented on **desktop** (Silk.NET). Touch platforms
+  have no implementation, so cursor requests are silently ignored.
+
+**Resolution chain (desktop).** Each cursor resolves through a provider chain, first match wins:
+1. **GLFW standard cursor** — loaded from the native OS cursor theme (used for the common
+   shapes the OS provides: arrow, hand, text, crosshair, the basic resizes).
+2. **Self-drawn backstop** — a Skia-rendered bitmap turned into a custom cursor. Guarantees
+   **every** `CursorType` renders, even ones the OS/GLFW lacks (`Wait`/`Progress` on some
+   backends, the diagonal/all resizes, and the brand `PlusUi` cursor which has no OS equivalent).
+
+So you can use any value freely — there's no "unsupported, shows as arrow" gap. (`CursorType.PlusUi`
+always goes straight to the self-drawn provider.)
 
 ## Reference implementation: `Slider` (built-in `IDraggableControl`)
 
@@ -197,4 +264,9 @@ protected override UiElement Build() => new Grid()
 - **Custom drag controls are still controls:** `partial` + `[GenerateShadowMethods]`, implement
   `IsFocusable` and `AccessibilityRole`, and override `MeasureInternal`/`Render`. See
   [architecture.md](architecture.md).
+- **Hover commands ≠ `IsHovered`.** `SetOnHoverEnterCommand`/`SetOnHoverExitCommand` are one-shot
+  side-effects on any element; `IHoverableControl.IsHovered` is a live flag you read in `Render`.
+  Don't implement `IHoverableControl` just to fire a command — use the hover commands.
+- **`SetCursor` is desktop-only.** It needs `IPlatformCursorService` (Silk.NET on desktop); on
+  touch platforms it's a no-op. Don't rely on the cursor for essential affordances.
 ```

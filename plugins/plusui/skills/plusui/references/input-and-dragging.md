@@ -7,7 +7,9 @@ gesture detectors fire a one-shot `ICommand`; the interfaces here give you a liv
 pixel deltas while the mouse is held.
 
 > Use a **gesture detector** for discrete events (tap, swipe, long-press). Use the
-> **interfaces here** when you need the drag delta every frame (resize, scrub, pan).
+> **interfaces here** when you need the drag delta every frame (resize, scrub, pan). Use the
+> **global input bus** ([`IGlobalInputService`](#global-input-bus-iglobalinputservice--raw-keyboard--pointer-no-focushit-test))
+> for raw app-wide keyboard/pointer streams independent of focus and hit-testing (games, shortcuts).
 
 ## How pointer events reach a control
 
@@ -116,6 +118,114 @@ new Button().SetText("Brand").SetCursor(CursorType.PlusUi);  // self-drawn PlusU
 
 So you can use any value freely — there's no "unsupported, shows as arrow" gap. (`CursorType.PlusUi`
 always goes straight to the self-drawn provider.)
+
+## Global input bus (`IGlobalInputService`) — raw keyboard & pointer, no focus/hit-test
+
+A framework-wide, subscribable stream of **raw** pointer and keyboard events, decoupled from
+hit-testing and focus. Inject it anywhere (typically a ViewModel) to read input globally —
+independent of which control is under the pointer or focused. This is the input counterpart to
+the per-frame `GameCanvas` (see [display.md](display.md#gamecanvas)): a game draws in a
+`GameCanvas` and reads input from here.
+
+Registered automatically as a **singleton** — just take `IGlobalInputService` in the constructor:
+
+```csharp
+public interface IGlobalInputService
+{
+    event Action<PointerInputEvent>? PointerMoved;   // Button = None
+    event Action<PointerInputEvent>? PointerDown;
+    event Action<PointerInputEvent>? PointerUp;
+    event Action<ScrollInputEvent>?  Scrolled;
+    event Action<KeyInputEvent>?     KeyDown;        // full PlusKey set
+    event Action<KeyInputEvent>?     KeyUp;
+}
+```
+
+### Event payloads (readonly structs)
+
+| Struct | Members | Notes |
+|---|---|---|
+| `PointerInputEvent` | `Point Position`, `PointerButton Button`, `KeyModifiers Modifiers` | `Position` in **page coordinates** (same space as hit-testing). |
+| `ScrollInputEvent` | `Point Position`, `float DeltaX`, `float DeltaY`, `KeyModifiers Modifiers` | Wheel/scroll deltas. |
+| `KeyInputEvent` | `PlusKey Key`, `KeyModifiers Modifiers`, `bool IsRepeat` | Full unfiltered key set. |
+
+- `PointerButton`: `None` (moves), `Left`, `Right`, `Middle`.
+- `KeyModifiers` (`[Flags]`): `None`, `Shift`, `Ctrl`, `Alt`.
+
+### The full `PlusKey` set
+
+`KeyDown`/`KeyUp` carry the **full** key set — unlike the UI-focused path (Entry/focus
+navigation), which only sees navigation/editing keys:
+
+- Navigation/editing: `Backspace`, `Enter`, `Tab`, `Space`, `ShiftTab`, `Escape`,
+  `ArrowUp/Down/Left/Right`, `Delete`, `Home`, `End`
+- Letters `A`–`Z` (ASCII-aligned values), digits `D0`–`D9` (top row **and** numpad map here)
+- Function keys `F1`–`F12`
+- Modifiers as keys: `LeftShift`, `RightShift`, `LeftCtrl`, `RightCtrl`, `LeftAlt`, `RightAlt`
+- `Unknown` for unmapped keys (not raised on the global bus)
+
+### Pattern: WASD game input in a ViewModel
+
+Track pressed keys in a set; read the set from the game loop. **Unsubscribe in `Dispose`** —
+the service is an app-lifetime singleton, subscriptions keep the VM alive.
+
+```csharp
+public sealed partial class GameViewModel : ObservableObject, IDisposable
+{
+    private readonly IGlobalInputService _input;
+    private readonly HashSet<PlusKey> _pressed = [];
+
+    public GameViewModel(IGlobalInputService input)
+    {
+        _input = input;
+        _input.KeyDown += OnKeyDown;
+        _input.KeyUp += OnKeyUp;
+        _input.PointerDown += OnPointerDown;
+    }
+
+    private void OnKeyDown(KeyInputEvent e) => _pressed.Add(e.Key);
+    private void OnKeyUp(KeyInputEvent e) => _pressed.Remove(e.Key);
+    private void OnPointerDown(PointerInputEvent e)
+    { if (e.Button == PointerButton.Left) { /* fire */ } }
+
+    public void Step(float dt)   // called from the GameCanvas draw loop
+    {
+        var dx = (_pressed.Contains(PlusKey.D) ? 1f : 0f)
+               - (_pressed.Contains(PlusKey.A) ? 1f : 0f);
+        // ...
+    }
+
+    public void Dispose()
+    {
+        _input.KeyDown -= OnKeyDown;
+        _input.KeyUp -= OnKeyUp;
+        _input.PointerDown -= OnPointerDown;
+    }
+}
+```
+
+### Global input gotchas
+
+- **Additive, never exclusive.** Events are raised *in addition to* the normal UI pipeline —
+  subscribing never suppresses clicks, focus, gestures, or text input. You cannot "handle"
+  an event to stop the UI from seeing it.
+- **Handlers run synchronously on the render/input thread.** Keep them fast; never throw.
+  Do heavy work elsewhere.
+- **Unsubscribe on teardown.** Singleton service ⇒ a forgotten `-=` leaks the subscriber
+  (and a navigated-away page keeps reacting to input).
+- **`IsRepeat` is currently always `false`** — track held keys yourself with a
+  `HashSet<PlusKey>` (down = add, up = remove) instead of relying on auto-repeat.
+- **`Modifiers` only reports `Shift` and `Ctrl` today.** The `Alt` flag exists but is not
+  stamped; `LeftAlt`/`RightAlt` do arrive as `KeyDown`/`KeyUp` events, so track Alt yourself
+  if needed.
+- **Right-click arrives as a paired `PointerDown`+`PointerUp`** (platforms deliver it as one
+  event). Real down/up tracking exists only for the **left** button; `Middle` is defined but
+  not currently raised.
+- **`PointerMoved` fires with `Button = None`** — it does not tell you whether a button is
+  held. Track that from `PointerDown`/`PointerUp`.
+- **Don't use this for normal UI.** Buttons, gestures, focus, text input all have their own
+  APIs (gesture detectors, `Bind*Command`, `IKeyboardInputHandler`). The global bus is for
+  games, canvases, shortcuts and diagnostics — not a replacement for the control pipeline.
 
 ## Reference implementation: `Slider` (built-in `IDraggableControl`)
 
@@ -269,4 +379,6 @@ protected override UiElement Build() => new Grid()
   Don't implement `IHoverableControl` just to fire a command — use the hover commands.
 - **`SetCursor` is desktop-only.** It needs `IPlatformCursorService` (Silk.NET on desktop); on
   touch platforms it's a no-op. Don't rely on the cursor for essential affordances.
-```
+- **Focused-key handling ≠ global keys.** `IKeyboardInputHandler` sees keys only while the
+  control has focus and only the navigation/editing subset; `IGlobalInputService.KeyDown/KeyUp`
+  sees **every** key regardless of focus. Games should use the global bus, not focus tricks.

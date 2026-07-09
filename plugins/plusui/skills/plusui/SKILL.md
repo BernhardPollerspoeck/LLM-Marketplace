@@ -28,10 +28,10 @@ inherit from `UiElement` / `UiTextElement` / `UiLayoutElement`. Colors are `SKCo
 | Text controls: Label, RichTextLabel, Link, Entry | [references/text.md](references/text.md) |
 | Input controls: Button, Checkbox, RadioButton, Toggle, Slider, ComboBox&lt;T&gt;, DatePicker, TimePicker | [references/input.md](references/input.md) |
 | Collection controls: ItemsList, TreeView, DataGrid&lt;T&gt;, TabControl | [references/collections.md](references/collections.md) |
-| Display controls: ActivityIndicator, ProgressBar, Image, Solid, LineGraph | [references/display.md](references/display.md) |
+| Display controls: ActivityIndicator, ProgressBar, Image, Solid, LineGraph, GameCanvas (per-frame Skia draw loop) | [references/display.md](references/display.md) |
 | Menus & overlays: Menu, ContextMenu, Toolbar, Tooltip, Popups (UiPopupElement) | [references/menus-overlays.md](references/menus-overlays.md) |
 | Gesture detectors: Tap, DoubleTap, LongPress, Swipe, Pinch | [references/gestures.md](references/gestures.md) |
-| Continuous pointer input: drag-to-resize, splitters, custom drag/hover controls, hover enter/leave commands, mouse cursor control, bound grid tracks | [references/input-and-dragging.md](references/input-and-dragging.md) |
+| Continuous pointer input: drag-to-resize, splitters, custom drag/hover controls, hover enter/leave commands, mouse cursor control, bound grid tracks; global raw input bus (IGlobalInputService: app-wide keyboard/pointer/scroll events, full PlusKey set, game input) | [references/input-and-dragging.md](references/input-and-dragging.md) |
 | Building reusable custom controls via composition | [references/usercontrol.md](references/usercontrol.md) |
 
 ## Critical rules / differences

@@ -6,7 +6,7 @@ and **none are focusable** (`IsFocusable = false`) — they never participate in
 navigation. Configure with `new Control()...` and chain methods.
 
 Controls covered: [ActivityIndicator](#activityindicator) · [ProgressBar](#progressbar) ·
-[Image](#image) · [Solid](#solid) · [LineGraph](#linegraph)
+[Image](#image) · [Solid](#solid) · [LineGraph](#linegraph) · [GameCanvas](#gamecanvas)
 
 Conventions in the tables below:
 
@@ -288,6 +288,71 @@ new LineGraph()
 
 ---
 
+## GameCanvas
+
+Hands you a **raw Skia canvas once per frame** for imperative, immediate-mode rendering —
+games, particle effects, continuous animations, custom visualizations. The opposite of the
+declarative control tree: its `Render` runs **every frame** (~60 FPS on desktop), so it
+redraws continuously without any invalidation/binding.
+
+`new GameCanvas()`
+
+| Property | Type | Default | Bind* | Notes |
+|---|---|---|---|---|
+| `OnDraw` | `Action<GameCanvasDrawContext>` | — | yes | Per-frame draw callback (`SetOnDraw`/`BindOnDraw`). |
+| `DesiredWidth`/`DesiredHeight` | `float` | stretches | yes | Fills available space by default (Stretch both axes). |
+| `Background`, `CornerRadius`, `Margin`, `IsVisible` | — | inherited | yes | Base `UiElement` members work as usual. |
+
+The callback receives a `GameCanvasDrawContext` (readonly struct):
+
+| Member | Type | Meaning |
+|---|---|---|
+| `Canvas` | `SKCanvas` | Draw target — already **translated and clipped**: (0,0) is the canvas' top-left, draw in local 0..Width / 0..Height. |
+| `Size` | `Size` | Current drawable size. |
+| `DeltaTime` | `TimeSpan` | Time since the previous frame (zero on the first frame). |
+| `TotalTime` | `TimeSpan` | Time since the first rendered frame. |
+| `FrameCount` | `long` | Zero-based frame index. |
+
+```csharp
+new GameCanvas()
+    .SetBackground(new Color(20, 20, 28))
+    .SetCornerRadius(8)
+    .SetDesiredHeight(360)
+    .SetOnDraw(ctx =>
+    {
+        vm.Step((float)ctx.DeltaTime.TotalSeconds, ctx.Size.Width, ctx.Size.Height);
+        using var paint = new SKPaint { Color = SKColors.Lime, IsAntialias = true };
+        ctx.Canvas.DrawCircle(vm.X, vm.Y, vm.Radius, paint);
+    });
+```
+
+Alternative for an object-oriented loop: subclass and `override void Draw(GameCanvasDrawContext)`
+(the base `Draw` invokes the `SetOnDraw` callback).
+
+**Rules**
+
+- **Input does NOT come from the canvas.** `GameCanvas` only draws; read keyboard/pointer from
+  the injected `IGlobalInputService` (see [input-and-dragging.md](input-and-dragging.md)) —
+  canvas and input are deliberately decoupled.
+- Advance game state with `DeltaTime` (frame-rate independent), not a fixed per-frame step.
+- Keep the state in the ViewModel; the draw callback should only step + render it.
+- Constrain with `SetDesiredHeight`/`SetDesiredWidth` — it stretches both axes by default.
+
+**Gotchas**
+
+- Draw in **local coordinates** (0..`Size.Width`/`Height`) — the canvas is already translated
+  to the element's position and clipped to its bounds. Don't add `Position`/offsets yourself.
+- The first frame reports `DeltaTime`/`TotalTime` of **zero** (clock starts at first paint).
+- `using`-dispose any `SKPaint`/`SKFont` you create in the callback — it runs every frame.
+- The callback runs on the render thread every frame — keep it fast, no alloc-heavy work,
+  never block or throw.
+- There is no "start/stop" API — it draws as long as it's visible; `SetIsVisible(false)` stops
+  rendering (and the delta clock keeps running, so the next visible frame has a large delta).
+- Non-focusable, `AccessibilityRole.None` — it never takes keyboard focus; that's another
+  reason input comes from `IGlobalInputService`.
+
+---
+
 ## Common LLM mistakes
 
 - Using `0–100` for `ProgressBar.Progress` instead of `0.0–1.0`.
@@ -299,3 +364,5 @@ new LineGraph()
 - Leaving a bare `new Solid()` with no color (renders nothing) when a colored block was intended.
 - Setting both `DesiredWidth` and `DesiredHeight` on an `Image` and expecting aspect ratio to be preserved (it distorts).
 - Trying to make these controls focusable / keyboard-interactive — all are non-focusable by design.
+- Trying to read input from `GameCanvas` (clicks, keys) — it only draws; input comes from `IGlobalInputService`.
+- Driving a `GameCanvas` animation with bindings/invalidation — it already redraws every frame; just draw the current state.

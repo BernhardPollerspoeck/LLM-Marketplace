@@ -1,6 +1,6 @@
 {
   "name": "sproutdb",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "SproutDB query language, schema design, and C# integration reference for AI coding agents. SproutDB has a custom query language (NOT SQL) — this skill ensures correct syntax.",
   "author": {
     "name": "Bernhard Pollerspöck",

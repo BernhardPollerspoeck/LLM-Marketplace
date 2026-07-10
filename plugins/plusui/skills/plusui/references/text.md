@@ -265,6 +265,7 @@ new Entry()
 - Enabling multi-line resets `DesiredHeight` (height becomes `-1`) so it can size from Min/MaxLines — don't rely on `DesiredHeight` there.
 - `SetPadding` takes a `Margin` (`Margin(left,top,right,bottom)` or `Margin(horizontal,vertical)`), never a single float.
 - `MaxLength` silently truncates pasted text to fit; no warning.
+- Clipboard (Ctrl+C/X/V) works on desktop (Windows/macOS/Linux) via the built-in `IClipboardService`; Android/iOS/Web have no implementation yet, so copy/cut/paste are silent no-ops there.
 - Password masking uses `'•'` by default; set `PasswordChar` to override.
 - Cursor blink is hardcoded at 500 ms on / 500 ms off.
 - Selection is cleared on blur; single-line scrolls horizontally and multi-line shows an auto vertical scrollbar (not optional).

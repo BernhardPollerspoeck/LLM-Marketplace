@@ -75,9 +75,11 @@ new Label().BindTextColor(() => ViewModel.StatusColor);  // Color
 new Entry().BindIsVisible(() => ViewModel.IsEditing);    // bool
 ```
 
-How `Bind*` works internally (the exact pattern to copy when you add a bindable property):
+How `Bind*` works internally — **this pattern is only available INSIDE `PlusUi.core`** (framework code):
 
 ```csharp
+// FRAMEWORK-INTERNAL pattern. Does NOT compile in app assemblies:
+// UiElement.ExpressionPathService is private protected (CS0122).
 public MyControl BindFoo(Expression<Func<Foo>> propertyExpression)
 {
     var path = ExpressionPathService.GetPropertyPath(propertyExpression); // string[] property path
@@ -88,6 +90,26 @@ public MyControl BindFoo(Expression<Func<Foo>> propertyExpression)
 ```
 
 `RegisterPathBinding` subscribes to the view model's `INotifyPropertyChanged` along the extracted path; whenever any segment raises `PropertyChanged`, the setter re-runs (and the property setter typically calls `InvalidateMeasure()`).
+
+### Bindable state on custom controls OUTSIDE PlusUi.core
+
+Do **not** try to replicate the expression pattern in app code. It is inaccessible by design (`ExpressionPathService` is `private protected`), and runtime `Expression.Compile()` is the wrong approach for AOT targets anyway. What works instead, in order of preference:
+
+1. **Composition.** Model bindable state with built-in controls and their existing `Bind*` methods — e.g. a selection highlight as an overlay element with `BindIsVisible(() => vm.IsSelected)` instead of a custom `IsSelected` property on your control.
+2. **String-based binding via `RegisterBinding`** (`protected`, available to your subclass; AOT-safe, no expressions). This is the same consumer-facing style the framework itself uses for `AddBoundColumn`/`AddBoundRow` — a `nameof` property name plus a `Func<T>` getter:
+
+```csharp
+public Badge BindCount(string propertyName, Func<int> getter)
+{
+    RegisterBinding(propertyName, () => SetCount(getter()));  // seeds immediately,
+    return this;                                              // re-runs on PropertyChanged(propertyName)
+}
+
+// Usage
+new Badge().BindCount(nameof(vm.UnreadCount), () => vm.UnreadCount)
+```
+
+`RegisterBinding` hooks into the page's string-based `UpdateBindings(propertyName)` channel: the update action runs once at registration (initial value) and again whenever the **page ViewModel** raises `PropertyChanged` with that name. The usual gotcha applies: properties on a non-page VM only refresh if the page VM forwards their `PropertyChanged` (see [usercontrol.md](usercontrol.md)).
 
 `UiTextElement.BindText` additionally offers a **generic formatter** overload (note: generic methods are NOT shadow-generated, see below):
 
@@ -235,11 +257,11 @@ public partial class Badge : UiElement        // REQUIRED: partial
         return this;
     }
 
-    public Badge BindCount(Expression<Func<int>> propertyExpression)
+    // App-side Bind*: string-based (AddBoundColumn style). The expression-based
+    // pattern used by built-in controls only compiles inside PlusUi.core.
+    public Badge BindCount(string propertyName, Func<int> getter)
     {
-        var path = ExpressionPathService.GetPropertyPath(propertyExpression);
-        var getter = propertyExpression.Compile();
-        RegisterPathBinding(path, () => Count = getter());
+        RegisterBinding(propertyName, () => Count = getter());
         return this;
     }
 
@@ -280,7 +302,8 @@ For a text control, derive from `UiTextElement` instead and reuse `Text`, `Font`
 - **Forgetting `partial`** or **`[GenerateShadowMethods]`** → compile errors, or fluent chains that break after the first inherited call (return `UiTextElement`/`UiElement` instead of your type).
 - **Redefining inherited properties** (`Background`, `CornerRadius`, `Margin`, `Padding`) → hides the generated members and breaks styling/binding. Use the inherited `Set*`; initialize in the constructor.
 - **Adding a `Set*` without a matching `Bind*`** → violates the IRON RULE. Always add both.
-- **Wrong `Bind*` argument**: it takes `Expression<Func<T>>` (`() => ViewModel.X`), **not** a `nameof(...)` string and **not** a precomputed value. The older `Bind(nameof(x), () => x)` two-arg form is gone.
+- **Wrong `Bind*` argument on built-in controls**: they take `Expression<Func<T>>` (`() => ViewModel.X`), **not** a `nameof(...)` string and **not** a precomputed value. The older `Bind(nameof(x), () => x)` two-arg form is gone. (Only *your own* app-side `Bind*` methods and `AddBoundColumn`/`AddBoundRow` use the `nameof` + getter style.)
+- **Copying the expression-based `Bind*` internals into app code** → `ExpressionPathService` is `private protected` (CS0122) and `Expression.Compile()` hurts AOT. Use composition or the string-based `RegisterBinding` pattern (see "Bindable state on custom controls OUTSIDE PlusUi.core").
 - **Assuming `SetWidth`/`SetHeight` exist** → use `SetDesiredWidth`/`SetDesiredHeight`/`SetDesiredSize` (`DesiredSize`). `-1` on an axis means "unset".
 - **`SetFontSize`** does not exist → it's **`SetTextSize`** (the `Label` XML-doc example is stale).
 - **Assuming `SetPadding` is universal** → `Padding` lives only on content-owning controls, not base `UiElement`.

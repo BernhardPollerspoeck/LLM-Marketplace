@@ -127,6 +127,10 @@ independent of which control is under the pointer or focused. This is the input 
 the per-frame `GameCanvas` (see [display.md](display.md#gamecanvas)): a game draws in a
 `GameCanvas` and reads input from here.
 
+All input-bus types (`IGlobalInputService`, `PointerInputEvent`, `ScrollInputEvent`,
+`KeyInputEvent`, `KeyModifiers`, `PlusKey`, `PointerButton`) live in the root namespace —
+a single `using PlusUi.core;` covers everything, including in ViewModel assemblies.
+
 Registered automatically as a **singleton** — just take `IGlobalInputService` in the constructor:
 
 ```csharp
@@ -351,6 +355,12 @@ protected override UiElement Build() => new Grid()
         row: 0, column: 1)
     .AddChild(BuildContent(), row: 0, column: 2);
 ```
+
+> This example lives directly in a **page** (`vm` is the page ViewModel), where the
+> `PropertyChanged` → re-measure chain works automatically. If you extract the splitter layout
+> into a `UserControl` with its own ViewModel, pass that VM to the base constructor
+> (`: base(vm)`) — otherwise the drag updates the VM but the bound column never re-measures.
+> See "UserControl with its own ViewModel" in [usercontrol.md](usercontrol.md).
 
 ## Gotchas / Common LLM mistakes
 

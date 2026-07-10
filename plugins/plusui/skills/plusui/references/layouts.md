@@ -167,6 +167,8 @@ new Grid()
 
 For the drag-to-resize handle that updates `SidebarWidth`, see [input-and-dragging.md](input-and-dragging.md).
 
+> **Gotcha:** the re-measure only fires when the property name is raised on the grid's **`Context`** — the page ViewModel, or, inside a `UserControl` constructed with its own ViewModel (`: base(vm)`), that own VM. If `SidebarWidth` lives on a VM that is *not* the grid's context, the bound track never re-measures; see "UserControl with its own ViewModel" in [usercontrol.md](usercontrol.md).
+
 ```csharp
 // Header row (fixed) + auto row, two proportional columns
 new Grid()

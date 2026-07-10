@@ -32,7 +32,7 @@ inherit from `UiElement` / `UiTextElement` / `UiLayoutElement`. Colors are `SKCo
 | Menus & overlays: Menu, ContextMenu, Toolbar, Tooltip, Popups (UiPopupElement) | [references/menus-overlays.md](references/menus-overlays.md) |
 | Gesture detectors: Tap, DoubleTap, LongPress, Swipe, Pinch | [references/gestures.md](references/gestures.md) |
 | Continuous pointer input: drag-to-resize, splitters, custom drag/hover controls, hover enter/leave commands, mouse cursor control, bound grid tracks; global raw input bus (IGlobalInputService: app-wide keyboard/pointer/scroll events, full PlusKey set, game input) | [references/input-and-dragging.md](references/input-and-dragging.md) |
-| Building reusable custom controls via composition | [references/usercontrol.md](references/usercontrol.md) |
+| Building reusable custom controls via composition; UserControl with its own ViewModel (binding refresh, "VM changes but UI doesn't update") | [references/usercontrol.md](references/usercontrol.md) |
 
 ## Critical rules / differences
 

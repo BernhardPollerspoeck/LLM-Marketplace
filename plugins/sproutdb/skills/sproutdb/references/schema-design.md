@@ -148,7 +148,7 @@ String size can be changed via `alter column`.
 
 - Index columns used in WHERE with equality/range filters
 - Index foreign key columns used in follow
-- Unique index for natural keys (email, slug, etc.)
+- Unique index for natural keys (email, slug, etc.): `create index unique users.email` — note `unique` follows `index`, unlike SQL. A plain `create index` enforces no uniqueness.
 - Blob columns CANNOT be indexed
 
 ---

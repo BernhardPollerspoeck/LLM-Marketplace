@@ -269,7 +269,7 @@ public sealed class CreateUsers : IMigration
     public void Up(ISproutDatabase db)
     {
         db.Query("create table users (name string 100, email string 320 strict, active bool default true)");
-        db.Query("create unique index users.email");
+        db.Query("create index unique users.email");  // note: "index unique", not SQL's "unique index"
     }
 }
 

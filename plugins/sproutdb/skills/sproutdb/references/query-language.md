@@ -229,12 +229,40 @@ alter column TABLE.COLUMN string NEW_SIZE
 
 ```
 create index TABLE.COLUMN
-create unique index TABLE.COLUMN
+create index unique TABLE.COLUMN
 purge index TABLE.COLUMN
 ```
 
-- Unique index allows NULL values (only non-null must be unique)
+**`unique` comes AFTER `index`, not before it.** SQL writes `CREATE UNIQUE INDEX`; SproutDB writes `create index unique`. The SQL order is a parse error — `create` only accepts `database`, `table`, `index` or `apikey` as its next token, so `create unique index users.email` fails with `expected 'database', 'table', 'index' or 'apikey'`.
+
+```
+create index unique users.email     ✓
+create unique index users.email     ✗ SYNTAX_ERROR
+```
+
+- Indexes are **not** unique by default. Plain `create index` builds a lookup structure and enforces no constraint. Only `create index unique` rejects duplicate values (`UNIQUE_VIOLATION`).
 - Blob columns cannot be indexed
+
+### NULL and unique indexes
+
+A unique index constrains **non-null values only**. NULL is skipped entirely by the check, which has three consequences:
+
+- **Any number of rows may hold NULL** in a unique column. Two NULLs are not "duplicates" — this differs from databases that treat NULL as a comparable value.
+- **Omitting the column in an upsert skips the check** for that record, exactly as NULL does.
+- `create index unique` on an existing column **fails** if that column already contains duplicate *non-null* values (`cannot create unique index on 'col': column contains duplicate values`). Pre-existing NULLs never block index creation.
+
+```
+create index unique users.email
+upsert users {name: 'a', email: null}   ✓
+upsert users {name: 'b', email: null}   ✓ second NULL is fine
+upsert users {name: 'c'}                ✓ column omitted, no check
+upsert users {name: 'd', email: 'x@y'}  ✓
+upsert users {name: 'e', email: 'x@y'}  ✗ UNIQUE_VIOLATION
+```
+
+To make a column reject NULL, give it a `default` — a column is nullable **iff it has no default**. There is no `not null` keyword, and `strict` does not affect nullability (it only forbids type widening).
+
+> **Caveat:** do not rely on `default` + `unique index` to force distinct values on every row. Defaults are materialized after the unique check runs, so two records that both omit the column receive the same default value without triggering `UNIQUE_VIOLATION`. Supply the value explicitly when it must be unique.
 
 ---
 

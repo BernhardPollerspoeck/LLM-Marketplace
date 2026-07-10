@@ -25,6 +25,7 @@ SproutDB is a custom embedded/networked database with its own query language (NO
 - **`##` for comments** — not `--` or `/* */`. Single quotes for strings — `'hello'`, not `"hello"`.
 - **`_id` is automatic** — ulong, auto-increment, never set manually on insert.
 - **No ALTER TABLE** — use `add column`, `rename column`, `alter column` as separate statements.
+- **`create index unique t.col`, not `create unique index`** — the `unique` keyword follows `index`. SQL's order is a parse error. Plain `create index` is non-unique.
 - **DELETE requires WHERE** — no statement deletes all rows at once.
 - **No foreign keys** — relationships exist only at query time via `follow`.
 - **Semicolons = multi-query / transaction delimiter** — `q1; q2; q3` runs three queries; `atomic; ...; commit` wraps them in a transaction. A single query needs no terminator.

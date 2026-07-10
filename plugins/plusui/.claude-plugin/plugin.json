@@ -1,6 +1,6 @@
 {
   "name": "plusui",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "PlusUi cross-platform .NET UI framework reference for AI coding agents. PlusUi is code-first and fluent (NOT XAML, NOT MAUI/WPF) — UI is built in C# with a builder API where every Set* has a matching Bind*. This skill ensures correct controls, layouts, binding, theming, and navigation usage.",
   "author": {
     "name": "Bernhard Pollerspöck",

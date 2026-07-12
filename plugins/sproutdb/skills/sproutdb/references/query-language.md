@@ -139,6 +139,7 @@ get TABLE
     [order by col1 [desc], col2 [asc]]
     [limit N]
     [page N size M]
+    [after 'CURSOR']
     [follow FOLLOW]*
     [select col1, follow_alias.col2]
 ```
@@ -169,6 +170,35 @@ get products select name, price * quantity as line_total
 ## Distinct
 get orders select status distinct
 ```
+
+### Cursor paging (`after`)
+
+Keyset paging over `_id` — use this instead of `page N size M` whenever you read
+a table completely (hydration loops, exports). The client carries the last seen
+`_id` as the cursor:
+
+```
+get orders after '0' limit 500      ## first page (ids > 0)
+## Response.Paging: { next_cursor: '517', next: "get orders after '517' limit 500", ... }
+get orders after '517' limit 500    ## next page
+## ...loop until next_cursor = null → done
+```
+
+Rules:
+- Returns rows with `_id > CURSOR`, ordered by `_id` ascending
+- `limit N` = page size; without `limit` the server default page size applies
+- Response `Paging`: `next_cursor` (last `_id` of the page, `null` on the final page),
+  `next` (ready-to-run follow-up query), `total` (matching rows from the cursor onward), `page` = 0
+- Combines with `where` and `select`; `order by _id` (asc) is allowed but redundant
+- **Cannot** combine with `page`, `count`, `distinct`, `group by`, aggregates,
+  `follow`, or any other `order by` → `SYNTAX_ERROR`
+- Linear server cost for a full table walk (offset paging is quadratic), and
+  correct under concurrent writes: `_id` is monotonic and never recycled, so
+  deletes/inserts between pages never skip or duplicate rows
+- Prefer `page N size M` only for UI grids with visible page numbers
+
+`order by _id [desc] limit N` without `after` uses the same fast path
+(top-N without full materialization) — identical results, just faster.
 
 ---
 

@@ -224,6 +224,15 @@ public sealed class SchemaInfo
     public int EffectiveChunkSize { get; init; }
     // ... plus column definitions, populated by `describe`
 }
+
+public sealed class PagingInfo
+{
+    public int Total { get; init; }
+    public int PageSize { get; init; }
+    public int Page { get; init; }        // 0 for cursor paging
+    public string? Next { get; init; }    // ready-to-run follow-up query (offset AND cursor)
+    public string? NextCursor { get; init; } // only for 'after' queries; null = last page
+}
 ```
 
 ## SproutOperation enum (byte)

@@ -27,6 +27,9 @@ SproutDB is a custom embedded/networked database with its own query language (NO
 - **No ALTER TABLE** — use `add column`, `rename column`, `alter column` as separate statements.
 - **`create index unique t.col`, not `create unique index`** — the `unique` keyword follows `index`. SQL's order is a parse error. Plain `create index` is non-unique.
 - **DELETE requires WHERE** — no statement deletes all rows at once.
+- **A literal in the select needs an alias** — `select host, true as preserve_host`, never bare `select 1`. And `true`/`false`/`null` only count as literals before an `as`: `select true` means the *column* named `true`.
+- **No duplicate output names once an alias is involved** — `select price * 2 as x, qty * 3 as x` is a parse error. Bare `select host, host` stays fine.
+- **`order by` columns must be in the select list** — SQL sorts by unselected columns, SproutDB rejects it: `select host order by port` is an error; select `port` too, or drop the select. (Exceptions: `order by _id ... limit N` and `after` cursor paging.)
 - **No foreign keys** — relationships exist only at query time via `follow`.
 - **Semicolons = multi-query / transaction delimiter** — `q1; q2; q3` runs three queries; `atomic; ...; commit` wraps them in a transaction. A single query needs no terminator.
 - **Prefer junction tables for relationships** — an `array` column type exists, but M:N/1:N relations are modeled with junction tables, not arrays.

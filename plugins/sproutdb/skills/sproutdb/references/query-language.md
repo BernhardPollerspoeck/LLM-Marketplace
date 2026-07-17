@@ -131,7 +131,7 @@ Rules:
 ```
 get TABLE
     [AGGREGATE column [as alias]]
-    [select col1, col2 | -select col1, col2]
+    [select col1, col2 | LITERAL as alias | -select col1, col2]
     [distinct]
     [where WHERE]
     [count]
@@ -167,9 +167,100 @@ get orders sum total as revenue group by status
 ## Computed Columns
 get products select name, price * quantity as line_total
 
+## Literal Columns
+get routes select host, true as preserve_host, 'auto' as protocol
+
 ## Distinct
 get orders select status distinct
 ```
+
+### Literal columns (`LITERAL as alias`)
+
+Project constant values — useful to line up result shapes across queries (discriminator
+fields, defaults for columns this table doesn't have).
+
+```
+get routes select host, true as preserve_host        ## bool
+get routes select host, 'auto' as backend_protocol   ## string
+get routes select host, 1 as version                 ## integer → long
+get routes select host, 2.5 as factor                ## float → double
+get routes select host, -1 as offset                 ## negative number
+get routes select host, null as cert_path            ## null
+get routes select 1 as x                             ## no real column at all
+```
+
+**Rules:**
+- **The alias is mandatory** — `select host, 'auto'` → `SYNTAX_ERROR: literal in select requires an alias`
+- The value is identical in **every** row, including rows a right/outer join builds without a source row
+- Key order follows the select list: `select true as a, host` → `{ a, host }`
+- Types: `1` → long, `2.5` → double, `'x'` → string, `true`/`false` → bool, `null` → null
+
+**`true` / `false` / `null` are literals only before `as`.** They are identifier tokens, so without
+a following `as` they stay column references:
+
+```
+get routes select true as x    ## literal true
+get routes select true         ## the column named 'true' (UNKNOWN_COLUMN if absent)
+```
+
+**Not combinable with aggregates** — the aggregate sits before the select
+(`get t sum port as total`) and the parser skips the select clause once it sees one.
+`select`/`-select` and aggregates are mutually exclusive in the grammar.
+
+**Not allowed in `-select`** — it removes columns by name, where a literal is meaningless →
+`SYNTAX_ERROR: literals are not allowed in '-select'`.
+
+**Post-follow:** literals work in a select after a `follow` too. A base literal survives an
+explicit post-follow select only if listed there — exactly like a base computed column.
+
+```
+get routes select host, 1 as v follow routes._id -> backends.route_id as b select host, b.name
+  → v is gone
+get routes select host, 1 as v follow routes._id -> backends.route_id as b select host, b.name, v
+  → v stays
+```
+
+There are no literals in the select attached **directly to a `follow`** (the target-table select):
+a literal in the list marks the select as a post-follow select. Nothing is lost — a constant does
+not depend on the joined row, so `follow ... select 1 as x` would equal the post-follow form.
+
+### Order by needs the column in the result
+
+Sorting runs on the projected rows. A sort column that exists in the table but not in the
+select is rejected — it used to pass silently and simply not sort.
+
+```
+get routes select host, port order by port desc   ## ok — port is in the result
+get routes order by port desc                     ## ok — no select, every column is there
+get routes select host, port as p order by p      ## ok — the alias is the row key
+get routes select host order by port desc         ## UNKNOWN_COLUMN: 'order by port' requires 'port' in the select list
+get routes -select port order by port             ## error — port was excluded
+get routes select host, port as p order by port   ## error — the key is now 'p'
+```
+
+Exceptions (work without the column selected):
+- `order by _id [desc] limit N` — dedicated top-N path, sorts correctly
+- `order by _id` with `after 'CURSOR'` — cursor paging sorts by `_id` by construction
+- `count` — no rows come back, ordering is moot
+
+> **Breaking:** queries like `select host order by port` used to run without error but came
+> back unsorted. They are now an error.
+
+### Duplicate output names
+
+An output name may appear only once as soon as at least one of the colliding entries carries an
+explicit alias:
+
+```
+get routes select host, host                   ## ok — plain repetition
+get routes select host, 1 as host              ## SYNTAX_ERROR: duplicate output name 'host'
+get routes select host as x, port as x         ## SYNTAX_ERROR: duplicate output name 'x'
+get orders select price * 2 as x, qty * 3 as x ## SYNTAX_ERROR: duplicate output name 'x'
+get routes -select host, host                  ## ok — exclude is not checked
+```
+
+> **Breaking:** `select price * 2 as x, qty * 3 as x` used to be accepted (last writer silently
+> won) and is now an error.
 
 ### Cursor paging (`after`)
 

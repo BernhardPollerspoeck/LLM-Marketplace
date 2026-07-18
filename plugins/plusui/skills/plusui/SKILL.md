@@ -25,7 +25,7 @@ inherit from `UiElement` / `UiTextElement` / `UiLayoutElement`. Colors are `SKCo
 | Colors (`SKColor`), styles, themes, dark/light | [references/theming.md](references/theming.md) |
 | Pages, routing, navigation between views | [references/navigation.md](references/navigation.md) |
 | Layout containers: VStack, HStack, Grid, UniformGrid, ScrollView, Scrollbar, Border, Separator | [references/layouts.md](references/layouts.md) |
-| Text controls: Label, RichTextLabel, Link, Entry | [references/text.md](references/text.md) |
+| Text controls: Label, RichTextLabel, Link, Entry, CodeEditor (syntax highlighting) | [references/text.md](references/text.md) |
 | Input controls: Button, Checkbox, RadioButton, Toggle, Slider, ComboBox&lt;T&gt;, DatePicker, TimePicker | [references/input.md](references/input.md) |
 | Collection controls: ItemsList, TreeView, DataGrid&lt;T&gt;, TabControl | [references/collections.md](references/collections.md) |
 | Display controls: ActivityIndicator, ProgressBar, Image, Solid, LineGraph, GameCanvas (per-frame Skia draw loop) | [references/display.md](references/display.md) |

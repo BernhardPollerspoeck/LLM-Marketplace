@@ -1,6 +1,6 @@
 # PlusUi Text Controls
 
-Controls for displaying and editing text: **Label** (static/dynamic text), **RichTextLabel** (mixed-style inline runs), **Link** (clickable hyperlink), and **Entry** (text input). UI is built in C# with the fluent builder — no XAML.
+Controls for displaying and editing text: **Label** (static/dynamic text), **RichTextLabel** (mixed-style inline runs), **Link** (clickable hyperlink), **Entry** (text input), and **CodeEditor** (multi-line code editing with syntax highlighting). UI is built in C# with the fluent builder — no XAML.
 
 ## Table of contents
 
@@ -9,13 +9,14 @@ Controls for displaying and editing text: **Label** (static/dynamic text), **Ric
 - [RichTextLabel](#richtextlabel)
 - [Link](#link)
 - [Entry](#entry)
+- [CodeEditor](#codeeditor)
 - [Common LLM mistakes](#common-llm-mistakes)
 
 ## Conventions (read first)
 
 - **Every `SetX` has a matching `BindX`.** `Set*` writes a static value once; `Bind*` registers a live binding that re-runs on `PropertyChanged`. Property tables below only flag the rare property that has **no** `Bind*`.
 - **`Bind*` takes a C# expression, never a property-name string.** Signature is `BindText(() => vm.Name)` — an `Expression<Func<T>>`. (The old `BindText(nameof(vm.Name), () => vm.Name)` form seen in some XML doc comments is NOT a real overload — do not use it.)
-- **`Label`, `RichTextLabel`, `Link` are read-only bindings** (VM -> control). Only **`Entry`** has a two-way `BindText` overload that also takes a setter `Action<T>` to push edits back.
+- **`Label`, `RichTextLabel`, `Link` are read-only bindings** (VM -> control). **`Entry`** and **`CodeEditor`** have a two-way `BindText` overload that also takes a setter `Action<T>` to push edits back.
 - The `[GenerateShadowMethods]` source generator makes inherited `Set*`/`Bind*` return the **derived** type, so chaining stays typed (e.g. `new Label().SetText(...)` returns `Label`).
 - `Label`, `Link`, `Entry` extend `UiTextElement` and share its text properties (`Text`, `TextSize`, `TextColor`, `FontFamily`, `FontWeight`, `FontStyle`, `HorizontalTextAlignment`, `TextWrapping`, `MaxLines`, `TextTruncation`). `RichTextLabel` extends `UiElement` and re-declares its own text defaults that apply to child runs.
 - `TextWrapping` values: `NoWrap` (default), `Wrap` (character break), `WordWrap` (word boundaries). **Wrapping needs an explicit width** (`SetDesiredWidth`) or it has no boundary to wrap against.
@@ -274,6 +275,123 @@ new Entry()
 
 ---
 
+## CodeEditor
+
+Multi-line editor for code: caret, selection, clipboard, block indent/outdent, auto-indent, line numbers, and syntax highlighting driven by a callback. Extends `UiTextElement`; `IsFocusable => true`, `AccessibilityRole.TextInput`. Defaults: width 480, height 320, `BackgroundInput` background, `CornerRadius`, padding `Margin(8, 6)`, `TextWrapping.NoWrap` (code does not wrap).
+
+**The document is always a plain `string`.** Styling is never stored on the control — a highlighter recomputes it from the text on every change. That is the whole point of the design: because no styled offsets are persisted, inserting or deleting text in the middle can never desynchronize the styling, and every cursor/selection index stays a plain character index.
+
+| Property | Type | Default | Notes |
+|----------|------|---------|-------|
+| `Text` | `string?` | `null` | Usually two-way bound. Tabs are normalized to spaces. |
+| `TabSize` | `int` | `4` | Spaces per indent step. Clamped to ≥1. |
+| `AutoIndent` | `bool` | `true` | Enter copies the current line's leading whitespace. |
+| `ShowLineNumbers` | `bool` | `true` | Renders a gutter sized to the line count. |
+| `LineNumberColor` | `Color` | `TextPlaceholder` | Gutter digits. |
+| `CurrentLineColor` | `Color` | `Color(255,255,255,12)` | Active-line highlight; only drawn while focused. |
+| `SelectionColor` | `Color` | `Color(100,149,237,100)` | Selection highlight (semi-transparent). |
+| `CaretColor` | `Color` | `TextPrimary` | Caret bar. |
+| `IsReadOnly` | `bool` | `false` | Blocks edits; selection/copy/navigation still work. |
+| `Padding` | `Margin` | `Margin(8, 6)` | Internal padding (a `Margin`, not a float). |
+| `FontFamily` / `TextSize` | `string?` / `float` | inherited | **Set a monospace family** (e.g. `"Consolas"`) — there is no monospace default. |
+
+`SetOnTextChanged(Action<string?>)` fires on every edit (no `Bind` counterpart — it is a callback, not a property).
+
+### Highlighting
+
+Two mutually exclusive modes. **Setting one clears the other** — they never both feed the render path.
+
+| Method | Callback | Span offsets | Use for |
+|--------|----------|--------------|---------|
+| `SetHighlighter` | `Func<string, List<StyleSpan>>` | Absolute in document | Simple, non-code styling (markers, search hits) |
+| `SetLineHighlighter` | `LineHighlighter` delegate | Relative to the line | Code — caches per line, handles multi-line constructs |
+
+```csharp
+public readonly record struct StyleSpan(
+    int Start, int Length,
+    Color? Color = null, FontWeight? FontWeight = null, FontStyle? FontStyle = null);
+
+// Returns the state the next line starts in. Fill `output`; do not keep a reference to it.
+public delegate int LineHighlighter(string lineText, int lineIndex, int stateIn, List<StyleSpan> output);
+```
+
+`SetLineHighlighter` is the one to use for code. Each line is tokenized with the state the **previous** line ended in, which is what makes block comments and verbatim strings spanning lines work — a line cannot otherwise know it sits inside a comment opened above it. Results are cached per line, so editing one line of a large file re-tokenizes that line and then stops as soon as the carried state lines up again.
+
+```csharp
+// Line-based, stateful — the right default for code
+const int Normal = 0, InBlockComment = 1;
+
+new CodeEditor()
+    .SetFontFamily("Consolas")
+    .SetTabSize(4)
+    .SetLineHighlighter((line, index, state, output) =>
+    {
+        if (state == InBlockComment)
+        {
+            var close = line.IndexOf("*/", StringComparison.Ordinal);
+            if (close < 0)
+            {
+                output.Add(new StyleSpan(0, line.Length, CommentColor));
+                return InBlockComment;          // still open — carry downward
+            }
+            output.Add(new StyleSpan(0, close + 2, CommentColor));
+            return Normal;
+        }
+
+        foreach (var token in Tokenize(line))
+            output.Add(new StyleSpan(token.Start, token.Length, ColorFor(token.Kind)));
+        return Normal;
+    })
+    .BindText(() => vm.Code, v => vm.Code = v);
+
+// Whole-document — fine for simple, stateless marking
+new CodeEditor()
+    .SetHighlighter(text =>
+    {
+        var spans = new List<StyleSpan>();
+        var i = text.IndexOf("TODO", StringComparison.Ordinal);
+        while (i >= 0)
+        {
+            spans.Add(new StyleSpan(i, 4, Colors.Red, FontWeight.Bold));
+            i = text.IndexOf("TODO", i + 4, StringComparison.Ordinal);
+        }
+        return spans;
+    })
+    .BindText(() => vm.Notes, v => vm.Notes = v);
+
+// Read-only viewer
+new CodeEditor()
+    .SetFontFamily("Consolas")
+    .SetIsReadOnly(true)
+    .SetShowLineNumbers(false)
+    .SetLineHighlighter(MyHighlighter)
+    .SetText(snippet);
+```
+
+### Keyboard
+
+| Key | Behavior |
+|-----|----------|
+| `Tab` / `Shift+Tab` | Indent / outdent. Indents **every line** touched by a multi-line selection. |
+| `Enter` | Newline, keeping the current indentation when `AutoIndent`. |
+| `Backspace` | Removes a whole indent step inside leading indentation, otherwise one character. |
+| `Home` | Toggles between the first non-whitespace character and column 0. `Ctrl+Home` to document start. |
+| `Ctrl+A/C/X/V` | Select all, copy, cut, paste. |
+
+**Gotchas**
+- **Set a monospace `FontFamily` yourself** — the editor inherits the normal text font, so columns will not line up otherwise.
+- **Tabs are normalized to `TabSize` spaces** on every input path (typing, paste, `SetText`). This keeps character index == rendered column, which is what makes click-to-caret and selection exact. There is deliberately no "use real tab characters" option.
+- **`SetHighlighter` and `SetLineHighlighter` are mutually exclusive** — calling one nulls the other. Do not expect them to compose.
+- **Line-highlighter spans are relative to the line**, document-highlighter spans are absolute. Mixing the two conventions up is the most common bug here.
+- For the per-line cache to converge, the same `(lineText, stateIn)` must always yield the same result — keep the highlighter pure and do not close over mutable outside state.
+- A highlighter that throws is caught: the affected line/document renders unstyled rather than taking the app down. It will not be reported — a silently uncolored file usually means an exception, not a tokenizer gap.
+- **`Tab` is claimed only while focused and editable.** A read-only editor lets `Tab` move focus on, which is what you want in a form.
+- **No undo/redo.** Deliberately left to the app — keep your own history on the bound VM property.
+- No word wrap: `TextWrapping` is forced to `NoWrap`; long lines scroll horizontally.
+- Overly long or out-of-range spans are clipped to the line, so a sloppy tokenizer cannot crash rendering.
+
+---
+
 ## Common LLM mistakes
 
 - Using `BindText(nameof(vm.X), () => vm.X)` — **not a real overload.** Bind takes only the expression: `BindText(() => vm.X)` (read-only) or `BindText(() => vm.X, v => vm.X = v)` (Entry two-way).
@@ -285,3 +403,7 @@ new Entry()
 - Assuming `RichTextLabel` run `null` properties fall back to theme defaults — they inherit from the **parent label**.
 - Using `SetRuns()` expecting it to append — it clears first; use `AddRun()`.
 - Confusing `HorizontalTextAlignment` (text within bounds) with `HorizontalAlignment` (element in parent).
+- Reaching for `Entry` with `SetIsMultiLine(true)` to build a code editor — use `CodeEditor`, which adds highlighting, indent handling, and line numbers.
+- Building a `CodeEditor` highlighter that returns **absolute** document offsets from `SetLineHighlighter` — line highlighters return **line-relative** offsets.
+- Expecting `CodeEditor` to store styling so the user can select text and apply bold — there is no such model; styling is always derived from the text by the highlighter.
+- Forgetting a monospace `SetFontFamily` on `CodeEditor` and getting misaligned columns.

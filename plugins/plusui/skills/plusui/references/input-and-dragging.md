@@ -168,6 +168,25 @@ navigation), which only sees navigation/editing keys:
 - Modifiers as keys: `LeftShift`, `RightShift`, `LeftCtrl`, `RightCtrl`, `LeftAlt`, `RightAlt`
 - `Unknown` for unmapped keys (not raised on the global bus)
 
+### Claiming keys on a focused control (`IKeyboardInputHandler`)
+
+A control that implements `IKeyboardInputHandler` gets **first refusal on every key** while
+focused, before focus navigation runs. Return `true` to consume the key, `false` to let the
+framework handle it as usual.
+
+```csharp
+public bool HandleKeyboardInput(PlusKey key)
+{
+    if (key == PlusKey.Tab) { Indent(); return true; }   // consumed
+    return false;                                         // Tab still moves focus elsewhere
+}
+```
+
+This includes `Tab`/`ShiftTab`: focus navigation only happens if the focused control declines
+them. `CodeEditor` uses this to indent, and deliberately declines while read-only so `Tab` keeps
+moving focus in forms. Only claim `Tab` when the control genuinely needs it — consuming it
+unconditionally traps keyboard users inside the control.
+
 ### Pattern: WASD game input in a ViewModel
 
 Track pressed keys in a set; read the set from the game loop. **Unsubscribe in `Dispose`** —

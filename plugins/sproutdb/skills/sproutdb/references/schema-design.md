@@ -147,8 +147,9 @@ String size can be changed via `alter column`.
 ### Index Strategy
 
 - Index columns used in WHERE with equality/range filters
+- **Index every `upsert … on COL` key column** — indexed: B-Tree lookup (O(log n)); unindexed: full scan per upsert (O(n), ~24× slower at 20k rows)
 - Index foreign key columns used in follow
-- Unique index for natural keys (email, slug, etc.): `create index unique users.email` — note `unique` follows `index`, unlike SQL. A plain `create index` enforces no uniqueness.
+- Unique index for natural keys (email, slug, etc.): on a new table declare it right in the column — `create table users (email string 320 strict unique, …)` — so table and index are created in one atomic statement. On an existing table: `create index unique users.email` — note `unique` follows `index`, unlike SQL. A plain `create index` enforces no uniqueness.
 - Blob columns CANNOT be indexed
 
 ---

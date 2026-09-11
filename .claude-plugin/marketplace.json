@@ -17,7 +17,7 @@
     },
     {
       "name": "sproutdb",
-      "version": "1.4.0",
+      "version": "1.5.0",
       "description": "SproutDB query language and C# integration reference. Ensures correct syntax (NOT SQL).",
       "source": "./plugins/sproutdb",
       "category": "development"

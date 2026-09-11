@@ -4,14 +4,44 @@
 
 | Type | Syntax | Example |
 |------|--------|---------|
-| String | Single quotes | `'hello'`, `'it\'s'` |
+| String | Single quotes | `'hello'`, `'it\'s'`, `'C:\\data\\'` |
 | Integer | Digits | `42`, `-7` |
 | Float | Digits with dot | `3.14`, `-0.5` |
 | Boolean | Keyword | `true`, `false` |
-| Null | Keyword | `null` (only in WHERE) |
+| Null | Keyword | `null` — in WHERE (`is null`) and as an upsert value (`{payload: null}` clears the column) |
 | Date | String format | `'2025-01-15'` |
 | DateTime | String format | `'2025-01-15 14:30:00.0000'` |
-| Duration | Number + unit | `7d`, `24h`, `30m` |
+| Duration | Number + unit | `7d`, `24h`, `30m`, `45s` |
+
+### String escapes
+
+Exactly two escapes exist inside string literals: `\'` → `'` and `\\` → `\`.
+Any other backslash is kept literally (`'C:\temp'` is `C:\temp`).
+
+```
+upsert files {path: 'it\'s'}        ## it's
+upsert files {path: 'C:\\data\\'}   ## C:\data\   ← a trailing backslash MUST be \\
+upsert files {path: 'C:\temp'}      ## C:\temp    (lone backslash stays)
+```
+
+A value ending in `\` written as `'a\'` is a syntax error — the backslash escapes the
+closing quote. **In code, don't build literals yourself — pass values as `@name`
+parameters** (see below). If you must: double backslashes first, then escape quotes:
+`value.Replace("\\", "\\\\").Replace("'", "\\'")`.
+
+### Parameters (`@name`)
+
+```
+get users where email = @email
+upsert gs {k: @k, etag: @next} on k when etag = @expected
+get users where name in @names          ## a list parameter renders as [..]
+```
+
+Placeholders are bound from C# (`db.Query(q, new { email })`) or from the HTTP JSON body
+`{"query": "...", "parameters": {...}}`. Each value becomes exactly one literal — never query
+syntax. Only at value positions (not table/column names). Missing/unused parameter →
+`PARAMETER_ERROR`. `@` inside a string literal is not a placeholder. Details:
+csharp-integration.md.
 
 ## Comments
 
@@ -47,6 +77,12 @@ commit
 
 Rules:
 - `atomic` and `commit` each stand alone in their own segment (own semicolon).
+- **Only `upsert`, `delete`, `get` and `describe` are allowed inside `atomic`.** Schema
+  changes (`create`, `add column`, `purge`, …), backup/restore and auth commands are a
+  `SYNTAX_ERROR` — a rollback cannot undo them. Create tables/indexes before the
+  transaction (for table + unique index in one step use the `unique` column modifier).
+- Any error (incl. `CONDITION_FAILED` / `EXPECTATION_FAILED`) rolls everything back; the
+  result is then a single error response `transaction rolled back: …`.
 - `get` / `describe` are allowed inside a transaction and see uncommitted writes
   (read-your-own-writes).
 - The result list ends with a **transaction marker** response
@@ -76,7 +112,7 @@ create database with chunk_size 500
 
 ```
 create table NAME
-create table NAME (col1 type [size] [strict] [default val], ...)
+create table NAME (col1 type [size] [strict] [default val] [unique], ...)
 create table NAME (...) ttl DURATION
 create table NAME (...) ttl DURATION with chunk_size N
 create table NAME (...) with chunk_size N
@@ -84,7 +120,7 @@ create table NAME (...) with chunk_size N
 
 Examples:
 ```
-create table users (name string, email string 320 strict, age ubyte, active bool default true)
+create table users (name string, email string 320 strict unique, age ubyte, active bool default true)
 create table sessions (token string 64 strict) ttl 24h
 create table products (name string 200, price double default 0)
 ```
@@ -92,6 +128,10 @@ create table products (name string 200, price double default 0)
 - No parentheses around type size: `string 320` NOT `string(320)`
 - `default VALUE` makes column non-nullable
 - `strict` prevents type widening on the column
+- `unique` creates the unique index **in the same statement** as the table (no window where
+  the table exists without it). Same semantics as `create index unique` (NULLs allowed).
+  Not for `blob`/`array`. Prefer it over a separate `create index unique` for new tables.
+- Modifiers `strict` / `default` / `unique` may appear in any order
 - `chunk_size` controls slot pre-allocation (100–1,000,000)
 - Order: Columns → TTL → `with chunk_size`
 
@@ -119,10 +159,55 @@ upsert sessions {token: 'abc123', ttl: 24h}
 Rules:
 - No `_id` and no `on` → Insert (auto-generated ID)
 - `_id` in body → implicit `on _id`, updates if exists
-- `on COLUMN` → lookup by column value: update if found, insert if not
+- `on COLUMN` → lookup by column value: update if found, insert if not. **With an index on
+  COLUMN (e.g. `unique`) the lookup uses the B-Tree (O(log n)); without one it scans all rows
+  (O(n)).** Always index upsert key columns.
 - `_id` can NEVER be manually set on insert
-- TTL field `ttl: DURATION` sets row expiry (`0` = no TTL)
+- `{col: null}` clears a column (nullable columns only, else `NOT_NULLABLE`)
+- TTL field `ttl: DURATION` sets row expiry (`0` = no row TTL, see TTL section)
 - Bulk limit: default 100 records per upsert
+- Response `Data` holds the written rows incl. `_id`. **Blob columns appear as their byte
+  length (`long`)**, not as base64 — only `get` returns the content
+
+### Conditional upsert (`when`) — compare-and-set
+
+```
+## Update only if the STORED row matches (optimistic concurrency / ETag)
+upsert grain_state {grain_key: 'k', etag: 'E2', payload: '...'} on grain_key when etag = 'E1'
+
+## Insert only — fails if the row already exists
+upsert grain_state {grain_key: 'k', etag: 'E1'} on grain_key when not exists
+
+## Update only — never inserts
+upsert grain_state {grain_key: 'k', etag: 'E2'} on grain_key when exists
+
+## Full WHERE grammar; implicit on _id works too
+upsert grain_state {grain_key: 'k', etag: 'E2'} on grain_key when etag in ['E1', 'E1b'] and payload is not null
+upsert grain_state {_id: 42, etag: 'E2'} when etag = 'E1'
+```
+
+| Clause | Row exists, condition true | Row exists, condition false | Row missing |
+|---|---|---|---|
+| `when <where-expr>` | update | `CONDITION_FAILED` | `CONDITION_FAILED` |
+| `when exists` | update | – | `CONDITION_FAILED` |
+| `when not exists` | `CONDITION_FAILED` | – | insert |
+| no `when` | update | – | insert |
+
+- The condition is evaluated against the **stored** row found via `on` / `_id`, not the new values.
+- Atomic: check + write happen in one step on the single writer — also over HTTP with many
+  clients/processes. Of two writers expecting the same ETag, exactly one wins.
+- `CONDITION_FAILED` response: `Data` holds the **complete current row** (like `get`), so the
+  caller learns the stored ETag without a second read. Empty `Data` = row missing.
+- An **expired TTL row counts as missing** (even before the cleanup removed it);
+  `when not exists` then frees it (physical delete) and inserts a genuinely new row with a
+  new `_id` — exactly as if the cleanup had already run.
+- Inside `atomic`, `CONDITION_FAILED` rolls back the whole transaction; `Data` shows the row
+  as stored **after** the rollback (not the transaction's intermediate state).
+- **Single records only:** `when` on a bulk upsert is a `SYNTAX_ERROR` — use `atomic` with
+  single conditional upserts instead.
+- `when` needs `on` or an `_id` in the record (else `SYNTAX_ERROR`). `when not exists` needs
+  `on` (a row cannot be inserted with an explicit `_id`).
+- Clause order: `upsert T {…} on COL when …` — `when` comes last.
 
 ---
 
@@ -297,6 +382,7 @@ Rules:
 
 ```
 delete TABLE where WHERE
+delete TABLE where WHERE expect N
 ```
 
 **WHERE is mandatory** — no accidental full-table deletes.
@@ -304,7 +390,16 @@ delete TABLE where WHERE
 ```
 delete users where active = false
 delete sessions where created < '2024-01-01 00:00:00.0000'
+
+## Conditional delete: only if exactly one row matches (ETag check)
+delete grain_state where grain_key = 'k' and etag = 'E1' expect 1
 ```
+
+- `expect N`: if a different number of rows matches, **nothing** is deleted and the result is
+  `EXPECTATION_FAILED` (message states the count found). Inside `atomic` it rolls back.
+- With `expect`, expired TTL rows count as missing: neither counted nor deleted (TTL cleanup
+  removes them).
+- Without `expect`, a delete signals "nothing matched" only via `affected = 0`.
 
 ---
 
@@ -329,6 +424,9 @@ shrink database chunk_size N
 ```
 
 - `shrink table`: Compacts index + column files, closes gaps from deleted rows
+- Not needed for steady delete + insert churn: freed slots are reused once ≥ 20 % of the
+  slots are free (backfill), so such a table levels off at about rows / 0.8 slots. Use
+  `shrink` only to physically shrink files after a large one-off delete.
 - `shrink table chunk_size N`: Additionally sets a new chunk_size for the table
 - `shrink database`: Sets DB-level chunk_size, shrinks all tables WITHOUT their own chunk_size
 - Tables with their own chunk_size are **skipped** by `shrink database`
@@ -407,7 +505,18 @@ upsert sessions {token: 'abc', ttl: 1h}
 purge ttl sessions
 ```
 
-Units: `m` (minutes), `h` (hours), `d` (days).
+Units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days).
+
+Behavior you can rely on:
+- Expired rows are **invisible to `get` immediately** — even before the background
+  cleanup physically deletes them (cleanup runs periodically, default every 5 minutes).
+- `upsert … on COL` treats an expired row as missing too: if `on` hits an expired,
+  not-yet-cleaned row, that row is freed (physically deleted) and the record inserted as a
+  **new row with a new `_id`** — an expired row is never revived with its old values.
+- **Every upsert resets the expiry:** with `ttl: X` the row expires X from now; without a
+  `ttl` field (or with `ttl: 0`) the table TTL applies again — or none if the table has
+  none. So an update without `ttl` removes a row TTL.
+- `purge ttl TABLE` removes the table-level TTL.
 
 ---
 
@@ -582,6 +691,10 @@ Data is preserved, NULL values remain NULL.
 | `BULK_LIMIT` | Too many records in bulk upsert |
 | `WHERE_REQUIRED` | DELETE needs WHERE |
 | `UNIQUE_VIOLATION` | Unique index violated |
+| `ID_NOT_FOUND` | Upsert with an `_id` that does not exist |
+| `CONDITION_FAILED` | `upsert … when …` condition not met — `Data` holds the current row (empty if none) |
+| `EXPECTATION_FAILED` | `delete … expect N`: different number of matching rows, nothing deleted |
+| `PARAMETER_ERROR` | `@name` parameter missing, unused or not renderable — nothing executed |
 | `PROTECTED_NAME` | Name with `_` prefix (system-reserved) |
 | `AUTH_REQUIRED` | No API key provided |
 | `AUTH_INVALID` | API key invalid |

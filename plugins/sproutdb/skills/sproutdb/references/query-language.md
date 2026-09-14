@@ -222,6 +222,7 @@ get TABLE
     [count]
     [group by col1, col2]
     [order by col1 [desc], col2 [asc]]
+    [dedup by col1, col2]
     [limit N]
     [page N size M]
     [after 'CURSOR']
@@ -257,6 +258,13 @@ get routes select host, true as preserve_host, 'auto' as protocol
 
 ## Distinct
 get orders select status distinct
+
+## Dedup by (first row per key, all columns)
+get orders order by created desc dedup by user_id     ## newest order per user
+
+## Semi / anti follow (exists / not exists)
+get users follow users._id -?> orders.user_id         ## users with at least one order, once each
+get users follow users._id -!> orders.user_id         ## users without any order
 ```
 
 ### Literal columns (`LITERAL as alias`)
@@ -330,6 +338,76 @@ Exceptions (work without the column selected):
 
 > **Breaking:** queries like `select host order by port` used to run without error but came
 > back unsorted. They are now an error.
+
+**With `follow`** the sort runs **after** the joins, so followed columns (`alias.col`) really sort —
+even when the post-follow select doesn't list them. Post-follow select aliases work too. The sort is
+stable: rows with equal sort keys keep their join order.
+
+```
+get users follow users._id -> orders.user_id as o order by o.amount desc
+get users follow users._id -> orders.user_id as o select name, o._id order by o.amount desc
+get users follow users._id -> orders.user_id as o select name, o.amount as amt order by amt
+```
+
+> **Bugfix:** the sort used to run before the join — `order by o.amount` passed without error but
+> did not sort at all.
+
+The sort column must exist on the joined rows, otherwise `UNKNOWN_COLUMN`:
+
+```
+... as o order by o.amout                    ## column 'amout' does not exist on 'orders'
+... as o order by x.amount                   ## 'x' is not the alias of a column-producing follow
+... as o select amount order by o.status     ## add 'status' to the select of follow 'o'
+get users select name follow ... order by email   ## column 'email' is not in the joined rows — add it to the select before 'follow'
+... -?> orders.user_id as o order by o.amount     ## semi/anti follows have no columns
+```
+
+**With `group by`** the result only holds the group columns and `count` or the aggregate alias
+(plus literals). Sorting by anything else → `UNKNOWN_COLUMN`:
+
+```
+get artikel group by gruppe order by count desc                ## ok
+get artikel sum preis as summe group by gruppe order by summe  ## ok
+get artikel select sku, name group by sku order by name        ## UNKNOWN_COLUMN: 'order by name' requires 'name' in the result — group by returns only the group columns and 'count'
+```
+
+> **Breaking:** these queries used to run without error and came back silently unsorted.
+> `group by` is aggregation — for "one full row per key" use `dedup by`, not `group by`.
+
+The **post-follow select** is checked the same way — a column that doesn't exist on the joined rows
+(typo, wrong alias, `users.name` instead of `name`, base column not selected before `follow`) used
+to be silently missing from the result and is now `UNKNOWN_COLUMN`. Also applies to `-select`.
+
+### Dedup by (first row per key)
+
+`dedup by col1, col2` keeps only the **first** result row per key combination — with all its
+columns (unlike `distinct`, which dedups over the whole projected row). "First" means result
+order, i.e. **after** `order by`. This is SQL's `DISTINCT ON` / "top 1 per group".
+
+```
+get orders order by created desc dedup by user_id           ## newest order per user
+get orders order by amount desc dedup by user_id, status    ## biggest order per user+status
+get users
+    follow users._id -> orders.user_id as o
+    order by o.amount desc
+    dedup by _id                                            ## each user with their biggest order
+get users
+    follow users._id -> user_roles.user_id as ur
+    follow ur.role_id -?> roles._id where roles.name = 'editor'
+    dedup by _id                                            ## M:N semi → one row per user
+```
+
+**Rules:**
+- Without `order by`, slot/join order decides — which row wins is then not guaranteed
+- The columns must be **in the result** (same rule as `order by`): `select amount dedup by user_id` →
+  `UNKNOWN_COLUMN: 'dedup by user_id' requires 'user_id' in the select list`. With a select alias, the alias counts.
+- With `follow`, keys are row keys — base columns (`_id`, `name`), followed columns (`o.status`),
+  post-follow select names. A semi/anti follow has no columns → `UNKNOWN_COLUMN`
+- `null` is a key of its own (all `null` rows share one)
+- Execution order: `where` → `distinct` → `follow` → `order by` → **`dedup by`** → `count` / `limit` / `page`
+  (so `count` counts deduped rows, and so does `Paging.Total`)
+- Position in the query text doesn't matter (like the other trailing clauses); allowed once
+- **Cannot** combine with `group by`, aggregates or `after` → `SYNTAX_ERROR`
 
 ### Duplicate output names
 
@@ -598,12 +676,20 @@ String comparisons are **case-sensitive** (byte-level UTF-8).
 | `->?` | Left | All source rows, NULL if no match |
 | `?->` | Right | All target rows, NULL if no match |
 | `?->?` | Outer | All rows from both tables |
+| `-?>` | Semi | Each source row **once** if at least one target row matches — adds no target columns |
+| `-!>` | Anti | Each source row that has **no** matching target row — adds no target columns |
+
+> Don't mix them up: `->?` (left, `?` = that side may be missing) vs. `-?>` (semi, `?` **inside** the arrow).
 
 ### Syntax
 
 ```
 follow SOURCE_TABLE.SOURCE_COL ARROW TARGET_TABLE.TARGET_COL as ALIAS
     [select col1, col2]
+    [where CONDITION]
+
+## Semi/anti: alias optional, no select
+follow SOURCE_TABLE.SOURCE_COL (-?> | -!>) TARGET_TABLE.TARGET_COL [as ALIAS]
     [where CONDITION]
 ```
 
@@ -653,10 +739,49 @@ get users
 get users
     follow users._id -> orders.user_id as orders
     select name, orders.total, orders.product
+
+## Semi: users with at least one completed order (each user once)
+get users
+    follow users._id -?> orders.user_id where orders.status = 'completed'
+
+## Anti: users without a completed order — the alias is optional, it only names the where prefix
+get users
+    follow users._id -!> orders.user_id as o where o.status = 'completed'
+
+## Semi at the end of a chain: users with the admin role
+get users
+    follow users._id -> user_roles.user_id as ur
+    follow ur.role_id -?> roles._id where roles.name = 'admin'
+
+## Anti inside a chain: orders without line items
+get users
+    follow users._id -> orders.user_id as o
+    follow o._id -!> order_items.order_id
+    select name, o._id
+
+## Several semi/anti follows = AND: users with a role but no order
+get users
+    follow users._id -?> user_roles.user_id
+    follow users._id -!> orders.user_id
 ```
 
 Follow expands rows: 1 user with 3 orders → 3 result rows.
 Follow columns are prefixed with alias: `orders._id`, `orders.total`.
+Follows run in sequence — each one works on the rows the previous one produced.
+`order by` sorts after all follows, so `order by alias.col` sorts correctly.
+
+### Semi / anti (`-?>` / `-!>`)
+
+- **Filter only** — rows pass through unchanged (no expansion, no target columns, order kept)
+- A `null` source key never matches: semi drops the row, anti keeps it
+- **Works on the current rows of the chain**, not on the base table: after a `->` to a junction table,
+  a semi filters every (user, junction) pair on its own. Duplicate junction rows → several rows per user
+  → append `dedup by _id`.
+- `as ALIAS` is optional; without it the where prefix is the table name (`orders.status`)
+- `select` directly on a semi/anti follow → `SYNTAX_ERROR` (select base columns before `follow`)
+- You cannot follow on from a semi/anti follow (`follow o._id -> ...` after `... -?> orders.user_id as o`)
+  → `SYNTAX_ERROR: cannot follow from 'o'`
+- Combines with every other follow (before/after `->`, `->?`, `?->`), `count`, `limit`, `page`, `order by`, `dedup by`
 
 ---
 
